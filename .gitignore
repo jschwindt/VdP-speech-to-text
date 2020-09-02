@@ -1,0 +1,6 @@
+.DS_Store
+.venv
+.vscode
+2020/
+model/
+.env
