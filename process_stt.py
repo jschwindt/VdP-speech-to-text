@@ -102,8 +102,6 @@ class SpeechToText:
     def format_result(self, data, final=False):
         result = json.loads(data)
         text = result.get('text')
-        if final:
-            logging.info(f"format_result with FINAL TRUE, text: {text}")
         if text:
             time = int(result['result'][0]['start'])
             if self.text_processor:
@@ -125,9 +123,7 @@ class SpeechToText:
 
 
 class VdpApi:
-    # BASE_URL = "http://localhost:3000/speech_to_text"
-    # TOKEN = "06649c55db532272d844568c5946cede"
-    BASE_URL = "https://venganzasdelpasado.com.ar/speech_to_text"
+    BASE_URL = os.getenv('VDP_STT_URL', "http://localhost:3000/speech_to_text")
     TOKEN = os.getenv('VDP_STT_TOKEN', "")
     HEADERS = {
         "Accept": "application/json",
@@ -196,8 +192,3 @@ def main(model, audio_file):
 
 if __name__ == "__main__":
     main()
-    # vdp = VdpApi()
-    # text = "1|¡Hola!\n2|qué talco?\n"
-    # audio_url = vdp.next_audio_url()
-    # upload_resp = vdp.upload_text(text)
-    # print(upload_resp)
