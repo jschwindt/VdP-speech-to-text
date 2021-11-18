@@ -19,12 +19,15 @@ def format_result(data):
 def reconize(model_path, process):
     vosk_model = Model(model_path)
     reconizer = KaldiRecognizer(vosk_model, sample_rate)
+    reconizer.SetWords(True)
+
     while True:
         data = process.stdout.read(8000)
         if len(data) == 0:
             break
         if reconizer.AcceptWaveform(data):
             yield format_result(reconizer.Result())
+
     yield format_result(reconizer.FinalResult())
 
 
