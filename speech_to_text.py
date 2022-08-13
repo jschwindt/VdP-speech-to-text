@@ -1,4 +1,4 @@
-#!/Users/jschwindt/vosk-model-es/.venv/bin/python -u
+#!/usr/bin/env python -u
 
 import json
 import subprocess

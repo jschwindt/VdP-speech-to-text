@@ -113,6 +113,7 @@ class SpeechToText:
 
     def next_sentence(self, process):
         reconizer = KaldiRecognizer(self.vosk_model, self.sample_rate)
+        reconizer.SetWords(True)
         while True:
             data = process.stdout.read(8000)
             if len(data) == 0:
