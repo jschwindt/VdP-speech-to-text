@@ -1,63 +1,48 @@
 #!/usr/bin/env python
 
-import json
 import logging
 import os
-import subprocess
 from contextlib import contextmanager
 from tempfile import NamedTemporaryFile
 
 import click
 import requests
-from vosk import KaldiRecognizer, Model, SetLogLevel
 
-
-class TextBlock:
-    def __init__(self):
-        self.block_time = None
-        self.line_time = None
-        self.text = ''
-
-    def add(self, time, text):
-        if self.block_time is None:
-            self.block_time = time
-            self.line_time = time
-            self.text += f"{{{time}}} {text}"
-            return time - self.block_time
-
-        if (time - self.line_time) <= 10:
-            self.text += f" {text}"
-        else:
-            self.text += f"\n{{{time}}} {text}"
-            self.line_time = time
-        return time - self.block_time
-
-    def close(self):
-        self.text += "\n"
+import whisper
 
 
 class TextProcessor:
     def __init__(self, uploader=None):
-        self.text_block = None
         self.uploader = uploader
+        self.block_text = None
+        self.block_time = None
+        self.already_seen = {}
 
     def add(self, time, text):
-        if not self.text_block:
-            self.text_block = TextBlock()
+        if not self.block_text:
+            self.block_text = ""
+            self.block_time = time if time > 0 else 1
 
-        block_duration = self.text_block.add(time, text)
-        if block_duration > 300:
+        if self.already_seen.get(text):
+            self.already_seen[text] += 1
+            if self.already_seen[text] > 3:
+                return
+        else:
+            self.already_seen[text] = 1
+
+        self.block_text += f"{{{time}}} {text}\n"
+
+        if (time - self.block_time) > 300:
             self.finish()
 
     def finish(self):
-        if self.text_block:
-            self.text_block.close()
+        if self.block_text:
             if self.uploader:
-                upload_resp = self.uploader.upload_text(time={self.text_block.block_time}, text={self.text_block.text})
+                upload_resp = self.uploader.upload_text(time={self.block_time}, text={self.block_text})
                 logging.info(upload_resp)
             else:
-                logging.info(f"NO uploader, time: {self.text_block.block_time}, text:\n{self.text_block.text}")
-            self.text_block = None
+                logging.info(f"NO uploader, time: {self.block_time}, text:\n{self.block_text}")
+            self.block_text = None
 
 
 @contextmanager
@@ -77,50 +62,25 @@ def download_to_tmp(url):
 
 
 class SpeechToText:
-    def __init__(self, model_path, text_processor=None):
-        SetLogLevel(-1)
-        self.vosk_model = Model(model_path)
+    def __init__(self, model, text_processor=None):
+        self.model = model
         self.text_processor = text_processor
-        self.sample_rate = 16000
+        self.text = ""
 
     def recognize(self, audio_file):
-        process = subprocess.Popen(
-            [
-                "ffmpeg", "-loglevel", "quiet", "-i", audio_file,
-                "-ar", str(self.sample_rate), "-ac", "1", "-f", "s16le", "-",
-            ],
-            stdout=subprocess.PIPE,
-        )
-        self.text = ""
-        for result in self.next_sentence(process):
-            if result:
-                self.text += result + "\n"
-                logging.info(result)
+        model = whisper.load_model(self.model)
+        result = model.transcribe(audio_file, verbose=False, language="es", fp16=False)
+
+        for segment in result['segments']:
+            stripped_text = segment['text'].strip()
+            self.text += stripped_text + "\n"
+            if self.text_processor:
+                self.text_processor.add(int(segment['start']), stripped_text)
+
+        if self.text_processor:
+            self.text_processor.finish()
 
         return self.text
-
-    def format_result(self, data, final=False):
-        result = json.loads(data)
-        text = result.get('text')
-        if text:
-            time = int(result['result'][0]['start'])
-            if self.text_processor:
-                self.text_processor.add(time, text)
-        if final:
-            self.text_processor.finish()
-        if text:
-            return f"{time}|{text}"
-
-    def next_sentence(self, process):
-        reconizer = KaldiRecognizer(self.vosk_model, self.sample_rate)
-        reconizer.SetWords(True)
-        while True:
-            data = process.stdout.read(8000)
-            if len(data) == 0:
-                break
-            if reconizer.AcceptWaveform(data):
-                yield self.format_result(reconizer.Result())
-        yield self.format_result(reconizer.FinalResult(), final=True)
 
 
 class VdpApi:
@@ -167,8 +127,8 @@ class VdpApi:
 
 
 @click.command()
-@click.option('-m', '--model', default="model", type=click.Path(exists=True),
-              help='Path to the model')
+@click.option('-m', '--model', default="small", type=click.Choice(['tiny', 'base', 'small', 'medium']),
+              help='Model to use')
 @click.argument('audio-file', required=False)
 def main(model, audio_file):
     logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)

@@ -2,7 +2,8 @@
 .venv
 .vscode
 __pycache__
-2020/
-model/
-.env
+.ipynb_checkpoints/
+.env*
 .idea
+*.mp3
+*.mp4
